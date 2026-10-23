@@ -1,0 +1,57 @@
+name: deb
+
+# Builds just the Linux .deb for a branch, the way the Release workflow's linux job does:
+# ubuntu-22.04 (glibc 2.35, matching the package's `libc6 (>= 2.35)`), nfpm, then
+# packaging/linux/package.sh --formats deb. Uploads the package as an artifact.
+#
+# The upstream Release workflow can't be used on a fork: its macOS job needs the org's
+# `macos-15-xlarge` runner and Apple signing secrets, its Windows job needs Azure Trusted
+# Signing, and the draft-release job needs every other job to succeed.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [wayland-file-drop-v2]
+
+permissions:
+  contents: read
+
+jobs:
+  deb:
+    name: Linux x86_64 .deb
+    runs-on: ubuntu-22.04
+    timeout-minutes: 120
+    env:
+      CARGO_TERM_COLOR: always
+      CARGO_INCREMENTAL: "0"
+      RUST_BACKTRACE: 1
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: storytold/craft-common-actions/actions/install-linux-deps@main
+        with:
+          deb-arch: amd64
+          nfpm-version: "2.48.0"
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: deb-linux-x86_64
+
+      - name: Build and package
+        run: packaging/linux/package.sh --formats deb
+
+      - name: Show the package
+        run: |
+          ls -lh dist/release/*.deb
+          dpkg-deb --info dist/release/*.deb
+          dpkg-deb --contents dist/release/*.deb | grep -E 'usr/bin/|applications|metainfo'
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: photocraft-deb-x86_64
+          path: dist/release/*.deb
+          if-no-files-found: error
